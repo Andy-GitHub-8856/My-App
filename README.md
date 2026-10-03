@@ -27,12 +27,12 @@ customers ─┐
 
 ## 安裝與啟動
 
-### 1. 在 Supabase 建立專案 TEST
+### 1. Supabase 專案 TEST (已建立)
 
-1. 登入 <https://supabase.com/dashboard> → **New project**
-2. Project name 填 **TEST**，設定資料庫密碼 (請記住)，選擇區域 (建議 Northeast Asia (Tokyo) 或 Southeast Asia (Singapore))
-3. 專案建立完成後，按上方 **Connect** → 選 **Session pooler**，複製連線字串
-   (格式：`postgresql://postgres.<project-ref>:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:5432/postgres`)
+- 專案 TEST 已建立於東京區域 (ap-northeast-1)，Project ref：`puclfcbqvyjdfxjnluua`
+- 資料表、檢視表與 20 筆產品資料已透過 migration `init_order_system` 建好
+- 專案是自動建立的，**請先到 Dashboard → Project Settings → Database → Reset database password 設定資料庫密碼**
+- 再到專案上方 **Connect** → **Session pooler** 複製連線字串
 
 ### 2. 設定連線
 

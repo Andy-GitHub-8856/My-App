@@ -84,7 +84,8 @@ create index if not exists idx_order_items_product on order_items(product_id);
 -- ---------------------------------------------------------------------
 -- 檢視表：訂單彙總 (單頭 + 客戶 + 合計)
 -- ---------------------------------------------------------------------
-create or replace view v_order_summary as
+-- security_invoker：以查詢者權限執行，避免繞過 RLS 經由 REST API 外洩
+create or replace view v_order_summary with (security_invoker = true) as
 select o.id,
        o.order_no,
        o.order_date,
@@ -150,4 +151,5 @@ select v.code, v.name, c.id, b.id, v.spec, v.unit, v.unit_price, v.stock_qty
   ) as v(code, name, category, brand, spec, unit, unit_price, stock_qty)
   join product_categories c on c.name = v.category
   join brands b on b.name = v.brand
+ order by v.code
 on conflict (code) do nothing;
