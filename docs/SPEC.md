@@ -8,7 +8,7 @@
 |---|---|
 | 形式 | 單一 HTML 檔（所有程式、樣式、排盤函式庫皆內嵌），雙擊即可在瀏覽器開啟 |
 | 排盤 | 本機以程式計算，**離線可用**、結果可重現 |
-| 解盤 | 透過 Claude API（使用者自備 API Key）串流產生詳細論斷 |
+| 解盤 | 透過 Google Gemini API（預設）或 Claude API（使用者自備 API Key）串流產生詳細論斷 |
 | 目標使用者 | 對命理有興趣的一般大眾與入門研究者 |
 | 語言 | 繁體中文 |
 
@@ -25,7 +25,7 @@ AI 不負責安星、換算曆法。所有命盤資料由經驗證的開源函�
 | 十神、藏干、納音、十二長生、五行計分 | 自行實作 (`src/bazi.js`) | 以繁體輸出 |
 | 稱骨 | 自行實作 (`src/chenggu.js`) | 袁天罡稱骨表 + 稱骨歌 (2兩1錢～7兩1錢) |
 | 真太陽時 / 夏令時 | 自行實作 (`src/solartime.js`) | 經度校正 + 均時差 |
-| AI | `@anthropic-ai/sdk`（瀏覽器模式） | `claude-opus-5-5`，串流、可選 `claude-sonnet-5-5` |
+| AI | Gemini REST（SSE 串流）／`@anthropic-ai/sdk`（瀏覽器模式） | 預設 `gemini-2.5-pro`，可選 `gemini-2.5-flash` 或自訂代號；Claude `claude-opus-5-5`／`claude-sonnet-5-5` |
 | 打包 | `esbuild` + `build.mjs` | 將 JS/CSS 內嵌產出 `dist/tianji-mingpu.html` |
 
 ## 3. 輸入資料
@@ -85,11 +85,12 @@ AI 不負責安星、換算曆法。所有命盤資料由經驗證的開源函�
 解盤後可針對命盤自由提問，保留對話脈絡（多輪），命盤資料固定在 system prompt。
 
 ### 5.4 API 設定
+- 供應商：Google Gemini（預設）／Anthropic Claude，兩家的 Key 與模型分別保存，可隨時切換
 - API Key 僅存在使用者瀏覽器 localStorage（可選擇不記住）
-- 模型：`claude-opus-5-5`（預設）／ `claude-sonnet-5-5`
-- 思考深度（effort）：中 / 高（預設）/ 極高
-- 安全拒答時自動改用備援模型（server-side fallback），若帳號不支援則自動停用重試
-- 使用 prompt caching：命盤 JSON 放在 system 前段並加 `cache_control`，降低多章節成本
+- Gemini 模型：`gemini-2.5-pro`（預設）／`gemini-2.5-flash`，或輸入任何其他模型代號
+- Claude 模型：`claude-opus-5-5`／`claude-sonnet-5-5`
+- 思考深度（effort）：中 / 高（預設）/ 極高。Gemini 對應思考預算 4096 / 自動 / 24576 tokens；模型不支援思考設定時自動移除後重試
+- Claude：安全拒答時自動改用備援模型（server-side fallback）；命盤放在 system 並加 `cache_control`
 
 ### 5.5 防護
 - System prompt 要求：只依提供資料論斷、不捏造星曜、避免醫療/投資/法律斷言、命理僅供參考

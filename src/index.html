@@ -117,15 +117,17 @@
   </section>
 </main>
 
-<footer class="foot">命理分析僅供參考與娛樂，人生掌握在自己手中。<br>排盤：iztro · lunar-javascript　解盤：Claude</footer>
+<footer class="foot">命理分析僅供參考與娛樂，人生掌握在自己手中。<br>排盤：iztro · lunar-javascript　解盤：Google Gemini／Anthropic Claude</footer>
 
 <dialog id="dlg-settings" class="dlg">
   <form method="dialog" id="settings-form">
     <h2>設定</h2>
-    <label class="f">Claude API Key<input name="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+    <label class="f">AI 供應商<select name="provider" id="provider-select"><option value="google">Google Gemini</option><option value="claude">Anthropic Claude</option></select></label>
+    <label class="f"><span id="key-label">API Key</span><input name="apiKey" type="password" autocomplete="off"></label>
     <label class="chk"><input type="checkbox" name="rememberKey"> 在此瀏覽器記住 API Key</label>
-    <p class="hint">Key 只會存在你的瀏覽器，並且只直接傳送到 api.anthropic.com。可到 console.anthropic.com 申請。</p>
-    <label class="f">模型<select name="model" id="model-select"></select></label>
+    <p class="hint" id="key-hint"></p>
+    <label class="f">模型<input name="model" list="model-list" autocomplete="off" spellcheck="false"><datalist id="model-list"></datalist></label>
+    <p class="hint">可從清單選擇，或直接輸入其他模型代號（例如更新版本的 Gemini）。</p>
     <label class="f">推演深度（effort）
       <select name="effort"><option value="medium">中（較快）</option><option value="high">高（建議）</option><option value="xhigh">極高（最細膩、最慢）</option></select>
     </label>

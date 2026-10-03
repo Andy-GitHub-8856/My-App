@@ -3,7 +3,7 @@ import { Lunar } from 'lunar-javascript';
 import { buildChart, chartToPrompt } from './chart.js';
 import { renderZiwei, bindZiwei, renderBazi, renderChenggu } from './render.js';
 import { renderMarkdown } from './markdown.js';
-import { MODELS, SECTIONS, runClaude } from './ai.js';
+import { PROVIDERS, SECTIONS, runAI, currentKey } from './ai.js';
 import * as store from './storage.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -262,7 +262,7 @@ function makeStreamView(container) {
 
 async function generateSections(ids) {
   if (state.busy) return;
-  if (!settings.apiKey) { toast('請先在「設定」輸入 Claude API Key'); openSettings(); return; }
+  if (!currentKey(settings)) { toast(`請先在「設定」輸入 ${PROVIDERS[settings.provider].label} API Key`); openSettings(); return; }
   setBusy(true);
   const ctrl = new AbortController(); state.abort = ctrl;
   let i = 0;
@@ -277,13 +277,13 @@ async function generateSections(ids) {
     const view = makeStreamView($('.sec-body', art));
     const focus = state.chart.input.focus ? `\n\n（命主特別關心：「${state.chart.input.focus}」，若與本章相關請多加著墨。）` : '';
     try {
-      const res = await runClaude({
+      const res = await runAI({
         settings, chartText: state.chartText, signal: ctrl.signal,
         messages: [{ role: 'user', content: s.ask + focus }],
         onText: view.onText, onThinking: view.onThinking,
       });
       const text = res.text + (res.stopReason === 'max_tokens' ? '\n\n> （內容過長已截斷，可按「重新生成」。）' : '');
-      state.readings[id] = { text, at: new Date().toISOString(), model: settings.model };
+      state.readings[id] = { text, at: new Date().toISOString(), model: settings[PROVIDERS[settings.provider].modelField] };
       view.done(text);
       $('.sec-state', art).textContent = '已完成';
       $('[data-gen]', art).textContent = '↻ 重新生成';
@@ -316,7 +316,7 @@ async function onAsk(e) {
   if (state.busy) return;
   const ta = $('textarea', e.target); const q = ta.value.trim();
   if (!q) return;
-  if (!settings.apiKey) { toast('請先在「設定」輸入 Claude API Key'); openSettings(); return; }
+  if (!currentKey(settings)) { toast(`請先在「設定」輸入 ${PROVIDERS[settings.provider].label} API Key`); openSettings(); return; }
   let content = q;
   if (!state.chat.messages.length) {
     const done = SECTIONS.filter((s) => state.readings[s.id]?.text).map((s) => `## ${s.title}\n${state.readings[s.id].text}`).join('\n\n');
@@ -333,8 +333,8 @@ async function onAsk(e) {
   setBusy(true);
   const ctrl = new AbortController(); state.abort = ctrl;
   try {
-    const res = await runClaude({ settings, chartText: state.chartText, messages: state.chat.messages, signal: ctrl.signal, onText: (t) => { view.onText(t); log.scrollTop = log.scrollHeight; }, onThinking: view.onThinking, maxTokens: 16000 });
-    state.chat.messages.push({ role: 'assistant', content: res.content });
+    const res = await runAI({ settings, chartText: state.chartText, messages: state.chat.messages, signal: ctrl.signal, onText: (t) => { view.onText(t); log.scrollTop = log.scrollHeight; }, onThinking: view.onThinking, maxTokens: 16000 });
+    state.chat.messages.push({ role: 'assistant', content: res.content, text: res.text });
     state.chat.display.push({ role: 'ai', text: res.text });
     view.done(res.text);
     autosave();
@@ -349,21 +349,39 @@ async function onAsk(e) {
 }
 
 /* ---------- 設定 ---------- */
+let draft = null; // 設定對話框中各供應商的暫存值
+function showProvider(f) {
+  const p = PROVIDERS[f.provider.value];
+  $('#key-label').textContent = `${p.label} API Key`;
+  f.apiKey.placeholder = p.keyPlaceholder;
+  f.apiKey.value = draft[p.keyField];
+  f.model.value = draft[p.modelField];
+  $('#key-hint').textContent = p.keyHint;
+  $('#model-list').innerHTML = p.models.map((m) => `<option value="${m.id}">${m.label}</option>`).join('');
+}
+function stashProvider(f) {
+  const p = PROVIDERS[f.provider.dataset.prev];
+  draft[p.keyField] = f.apiKey.value.trim();
+  draft[p.modelField] = f.model.value.trim() || p.models[0].id;
+}
 function openSettings() {
   const f = $('#settings-form');
-  $('#model-select').innerHTML = MODELS.map((m) => `<option value="${m.id}">${m.label}</option>`).join('');
-  f.apiKey.value = settings.apiKey; f.rememberKey.checked = settings.rememberKey;
-  f.model.value = settings.model; f.effort.value = settings.effort;
+  draft = { ...settings };
+  f.provider.value = f.provider.dataset.prev = settings.provider;
+  f.rememberKey.checked = settings.rememberKey; f.effort.value = settings.effort;
+  showProvider(f);
   $('#dlg-settings').showModal();
 }
 function initSettings() {
+  const f = $('#settings-form');
   $('#btn-settings').addEventListener('click', openSettings);
+  f.provider.addEventListener('change', () => { stashProvider(f); f.provider.dataset.prev = f.provider.value; showProvider(f); });
   $('#dlg-settings').addEventListener('close', () => {
     if ($('#dlg-settings').returnValue !== 'ok') return;
-    const f = $('#settings-form');
-    settings = { apiKey: f.apiKey.value.trim(), rememberKey: f.rememberKey.checked, model: f.model.value, effort: f.effort.value };
+    stashProvider(f);
+    settings = { ...draft, provider: f.provider.value, rememberKey: f.rememberKey.checked, effort: f.effort.value };
     store.saveSettings(settings);
-    toast('設定已儲存');
+    toast(`設定已儲存，目前使用 ${PROVIDERS[settings.provider].label}`);
   });
 }
 
@@ -473,6 +491,6 @@ function init() {
   $('#chat-form textarea').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#chat-form').requestSubmit(); });
   $('#btn-new').addEventListener('click', () => { $('#form-card').scrollIntoView({ behavior: 'smooth' }); });
   $('#btn-print').addEventListener('click', printBook);
-  if (!settings.apiKey) setTimeout(() => toast('提示：AI 解盤需先在「設定」輸入 Claude API Key'), 1500);
+  if (!currentKey(settings)) setTimeout(() => toast('提示：AI 解盤需先在「設定」輸入 Google Gemini API Key'), 1500);
 }
 init();

@@ -10,13 +10,20 @@ function write(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
 }
 
-export const DEFAULT_SETTINGS = { apiKey: '', rememberKey: true, model: 'claude-opus-5-5', effort: 'high' };
+export const DEFAULT_SETTINGS = {
+  provider: 'google', googleKey: '', googleModel: 'gemini-2.5-pro',
+  claudeKey: '', claudeModel: 'claude-opus-5-5', rememberKey: true, effort: 'high',
+};
 
 export function loadSettings() {
-  return { ...DEFAULT_SETTINGS, ...read(KEY_SETTINGS, {}) };
+  const { apiKey, model, ...saved } = read(KEY_SETTINGS, {});
+  // 舊版只有 Claude：apiKey / model 轉為 claudeKey / claudeModel
+  if (apiKey && !saved.claudeKey) saved.claudeKey = apiKey;
+  if (model && !saved.claudeModel) saved.claudeModel = model;
+  return { ...DEFAULT_SETTINGS, ...saved };
 }
 export function saveSettings(s) {
-  write(KEY_SETTINGS, s.rememberKey ? s : { ...s, apiKey: '' });
+  write(KEY_SETTINGS, s.rememberKey ? s : { ...s, googleKey: '', claudeKey: '' });
 }
 
 export const loadRecords = () => read(KEY_RECORDS, []);

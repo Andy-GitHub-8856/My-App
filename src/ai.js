@@ -1,11 +1,27 @@
 // Claude API：解盤章節與追問
 
 import Anthropic from '@anthropic-ai/sdk';
+import { runGemini } from './gemini.js';
 
-export const MODELS = [
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5（最深入，預設）' },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5（較快、較省）' },
-];
+export const PROVIDERS = {
+  google: {
+    label: 'Google Gemini', keyField: 'googleKey', modelField: 'googleModel', keyPlaceholder: 'AIza…',
+    keyHint: '到 aistudio.google.com 按「Get API key」免費申請。Key 只會存在你的瀏覽器，並且只直接傳送到 Google。',
+    models: [
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro（最深入，預設）' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（較快、免費額度較多）' },
+    ],
+  },
+  claude: {
+    label: 'Anthropic Claude', keyField: 'claudeKey', modelField: 'claudeModel', keyPlaceholder: 'sk-ant-…',
+    keyHint: '到 console.anthropic.com 申請。Key 只會存在你的瀏覽器，並且只直接傳送到 api.anthropic.com。',
+    models: [
+      { id: 'claude-opus-5-5', label: 'Claude Opus 5.5（最深入）' },
+      { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5（較快、較省）' },
+    ],
+  },
+};
+export const currentKey = (s) => s[PROVIDERS[s.provider].keyField];
 
 export const SECTIONS = [
   { id: 'overview', title: '命格總論', icon: '☯', needZiwei: false,
@@ -61,18 +77,31 @@ export function systemBlocks(chartText) {
 
 // messages: 對話歷史（append-only）；onText/onThinking：串流回呼
 // 回傳 { content, text, stopReason } ；失敗時丟出含中文訊息的 Error
-export async function runClaude({ settings, chartText, messages, onText, onThinking, signal, maxTokens = 32000 }) {
-  if (!settings.apiKey) throw new Error('尚未設定 API Key，請先到右上角「設定」輸入。');
-  const client = new Anthropic({ apiKey: settings.apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
+export function runAI(opts) {
+  const { settings, chartText } = opts;
+  const o = { maxTokens: 32000, ...opts };
+  if (settings.provider === 'google') return runGemini({ ...o, system: `${RULES}\n\n【命盤資料】\n${chartText}` });
+  return runClaude(o);
+}
+
+// 對話歷史中的助理訊息會同時存 content（Claude 區塊）與 text（純文字），以便切換供應商
+const toClaudeMessages = (messages) => messages.map((m) => ({
+  role: m.role,
+  content: m.role === 'assistant' && !m.content ? m.text : m.content,
+}));
+
+async function runClaude({ settings, chartText, messages, onText, onThinking, signal, maxTokens }) {
+  if (!settings.claudeKey) throw new Error('尚未設定 Claude API Key，請先到右上角「設定」輸入。');
+  const client = new Anthropic({ apiKey: settings.claudeKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
 
   const attempt = async (useFallback) => {
     const params = {
-      model: settings.model,
+      model: settings.claudeModel,
       max_tokens: maxTokens,
       thinking: { type: 'adaptive', display: 'summarized' },
       output_config: { effort: settings.effort },
       system: systemBlocks(chartText),
-      messages,
+      messages: toClaudeMessages(messages),
     };
     if (useFallback) {
       params.betas = ['server-side-fallback-2026-07-01'];
