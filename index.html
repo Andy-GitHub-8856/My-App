@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>英文對話練習</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>英文對話練習</h1>
+    <button id="settingsBtn" type="button">設定</button>
+  </header>
+
+  <section id="settings" hidden>
+    <label>
+      Google Gemini API Key
+      <input id="apiKey" type="password" placeholder="貼上你的 API Key" autocomplete="off">
+    </label>
+    <p class="hint">
+      到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>
+      免費申請。Key 只會存在你自己的瀏覽器（localStorage）。
+    </p>
+    <label>
+      模型
+      <input id="model" type="text" list="modelList">
+      <datalist id="modelList">
+        <option value="gemini-2.5-flash">
+        <option value="gemini-2.5-flash-lite">
+        <option value="gemini-2.0-flash">
+      </datalist>
+    </label>
+    <label>
+      對話主題（可留空）
+      <input id="topic" type="text" placeholder="例如：travel, ordering food, job interview">
+    </label>
+    <label class="inline">
+      <input id="speak" type="checkbox"> 朗讀電腦的回覆
+    </label>
+    <div class="row">
+      <button id="saveBtn" type="button">儲存</button>
+      <button id="resetBtn" type="button" class="secondary">重新開始對話</button>
+    </div>
+  </section>
+
+  <main id="chat" aria-live="polite"></main>
+
+  <form id="form">
+    <input id="input" type="text" placeholder="Type your English sentence..." autocomplete="off" required>
+    <button id="sendBtn" type="submit">送出</button>
+  </form>
+
+  <script src="app.js"></script>
+</body>
+</html>
