@@ -1,0 +1,27 @@
+{
+  "name": "tianji-mingpu",
+  "version": "1.0.0",
+  "description": "天機命譜：紫微斗數、八字、稱骨排盤與 Claude AI 解盤（單一 HTML）",
+  "main": "src/main.js",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Andy-GitHub-8856/My-App.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Andy-GitHub-8856/My-App/issues"
+  },
+  "homepage": "https://github.com/Andy-GitHub-8856/My-App#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "iztro": "^2.6.1",
+    "lunar-javascript": "^1.7.7"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>天機命譜</title>
+<meta name="description" content="紫微斗數、八字、稱骨排盤與 AI 詳細解盤">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&family=LXGW+WenKai+TC:wght@400;700&display=swap" rel="stylesheet">
+<style>/*__STYLE__*/</style>
+</head>
+<body>
+<canvas id="stars" aria-hidden="true"></canvas>
+
+<header class="topbar">
+  <div class="brand"><span class="brand-seal">命</span>天機命譜</div>
+  <nav>
+    <button class="btn ghost" id="btn-records" type="button">📜 命盤存檔</button>
+    <button class="btn ghost" id="btn-settings" type="button">⚙ 設定</button>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="compass-wrap"><svg id="compass" viewBox="-200 -200 400 400" aria-hidden="true"></svg></div>
+    <h1>天機命譜</h1>
+    <p class="tagline">紫微斗數 · 子平八字 · 袁天罡稱骨 · AI 詳批</p>
+  </section>
+
+  <section class="card" id="form-card">
+    <h2 class="card-title"><span>壹</span>輸入生辰</h2>
+    <form id="birth-form" autocomplete="off">
+      <div class="fgrid">
+        <label class="f">姓名／暱稱<input name="name" required maxlength="20" placeholder="例：林小明"></label>
+        <div class="f">性別
+          <div class="seg"><label><input type="radio" name="gender" value="男" checked><span>乾造（男）</span></label><label><input type="radio" name="gender" value="女"><span>坤造（女）</span></label></div>
+        </div>
+        <div class="f">曆法
+          <div class="seg"><label><input type="radio" name="calendar" value="solar" checked><span>國曆</span></label><label><input type="radio" name="calendar" value="lunar"><span>農曆</span></label></div>
+        </div>
+        <div class="f">出生日期
+          <div class="row3">
+            <input name="y" type="number" min="1900" max="2100" required placeholder="年">
+            <input name="m" type="number" min="1" max="12" required placeholder="月">
+            <input name="d" type="number" min="1" max="31" required placeholder="日">
+          </div>
+          <label class="chk lunar-only"><input type="checkbox" name="leap"> 閏月</label>
+        </div>
+        <div class="f">出生時間
+          <div class="row2">
+            <input name="h" type="number" min="0" max="23" placeholder="時 (0–23)">
+            <input name="mi" type="number" min="0" max="59" placeholder="分">
+          </div>
+          <label class="chk"><input type="checkbox" name="hourUnknown"> 時辰不詳</label>
+        </div>
+        <label class="f">出生地<select name="place" id="place"></select></label>
+        <div class="f custom-only">自訂經度／時區
+          <div class="row2"><input name="lon" type="number" step="0.01" min="-180" max="180" placeholder="經度 (東經為正)"><input name="tz" type="number" step="0.5" min="-12" max="14" placeholder="時區 (如 8)"></div>
+        </div>
+      </div>
+
+      <details class="adv" open>
+        <summary>時間校正與流派設定</summary>
+        <div class="fgrid">
+          <label class="chk"><input type="checkbox" name="trueSolar" checked> 真太陽時校正（經度＋均時差）</label>
+          <label class="chk"><input type="checkbox" name="dst"> 出生時間為夏令時間（自動偵測）</label>
+          <div class="f">子時換日
+            <div class="seg"><label><input type="radio" name="ziMode" value="split" checked><span>早晚子時分日</span></label><label><input type="radio" name="ziMode" value="next"><span>23 點即換日</span></label></div>
+          </div>
+        </div>
+        <p class="hint" id="time-preview"></p>
+      </details>
+
+      <label class="f">想特別了解的事（選填）<textarea name="focus" rows="2" maxlength="300" placeholder="例：今年適合轉職嗎？感情何時穩定？"></textarea></label>
+      <p class="form-error" id="form-error" role="alert"></p>
+      <button class="btn gold big" type="submit" id="btn-cast">✦ 起盤 ✦</button>
+    </form>
+  </section>
+
+  <section id="results" hidden>
+    <div class="result-head card">
+      <div><h2 id="r-title"></h2><p id="r-sub" class="muted"></p><ul id="r-warn" class="warns"></ul></div>
+      <div class="r-actions">
+        <button class="btn" id="btn-save" type="button">💾 儲存命盤</button>
+        <button class="btn" id="btn-print" type="button">🖨 列印／PDF 命書</button>
+        <button class="btn ghost" id="btn-new" type="button">↺ 重新輸入</button>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="ziwei" class="active">紫微命盤</button>
+      <button role="tab" data-tab="bazi">八字</button>
+      <button role="tab" data-tab="chenggu">稱骨</button>
+      <button role="tab" data-tab="reading">AI 解盤</button>
+      <button role="tab" data-tab="chat">AI 追問</button>
+    </div>
+
+    <div class="card panel" data-panel="ziwei" id="panel-ziwei"></div>
+    <div class="card panel" data-panel="bazi" id="panel-bazi" hidden></div>
+    <div class="card panel" data-panel="chenggu" id="panel-chenggu" hidden></div>
+    <div class="card panel" data-panel="reading" hidden>
+      <div class="reading-bar">
+        <button class="btn gold" id="btn-all" type="button">☯ 一鍵完整解盤</button>
+        <button class="btn ghost" id="btn-stop" type="button" hidden>■ 停止</button>
+        <span class="muted" id="reading-status"></span>
+      </div>
+      <div id="sections"></div>
+    </div>
+    <div class="card panel" data-panel="chat" hidden>
+      <div id="chat-log" class="chat-log"><p class="muted">針對你的命盤自由提問，例如「我適合創業還是上班？」「明年感情運如何？」</p></div>
+      <form id="chat-form" class="chat-form">
+        <textarea name="q" rows="2" maxlength="2000" placeholder="請輸入你的問題…" required></textarea>
+        <button class="btn gold" type="submit">問天機</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">命理分析僅供參考與娛樂，人生掌握在自己手中。<br>排盤：iztro · lunar-javascript　解盤：Claude</footer>
+
+<dialog id="dlg-settings" class="dlg">
+  <form method="dialog" id="settings-form">
+    <h2>設定</h2>
+    <label class="f">Claude API Key<input name="apiKey" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+    <label class="chk"><input type="checkbox" name="rememberKey"> 在此瀏覽器記住 API Key</label>
+    <p class="hint">Key 只會存在你的瀏覽器，並且只直接傳送到 api.anthropic.com。可到 console.anthropic.com 申請。</p>
+    <label class="f">模型<select name="model" id="model-select"></select></label>
+    <label class="f">推演深度（effort）
+      <select name="effort"><option value="medium">中（較快）</option><option value="high">高（建議）</option><option value="xhigh">極高（最細膩、最慢）</option></select>
+    </label>
+    <div class="dlg-actions"><button class="btn ghost" value="cancel" type="submit">取消</button><button class="btn gold" value="ok" type="submit">儲存</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-records" class="dlg">
+  <form method="dialog">
+    <h2>命盤存檔</h2>
+    <div id="records-list" class="records"></div>
+    <div class="dlg-actions">
+      <button class="btn ghost" type="button" id="btn-export">匯出 JSON</button>
+      <label class="btn ghost">匯入 JSON<input type="file" id="file-import" accept="application/json,.json" hidden></label>
+      <button class="btn gold" value="close" type="submit">關閉</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="print-book" aria-hidden="true"></div>
+<div id="toast" role="status"></div>
+
+<script>/*__SCRIPT__*/</script>
+</body>
+</html>
