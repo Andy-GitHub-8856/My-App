@@ -41,6 +41,9 @@ cp .env.example .env
 # 編輯 .env，貼上連線字串並把 [YOUR-PASSWORD] 換成資料庫密碼
 ```
 
+> ⚠️ 密碼若含 `/ ? + @ # : %` 等特殊字元，必須先 URL 編碼 (例如 `/`→`%2F`、`?`→`%3F`、`+`→`%2B`)，否則會連線失敗。
+> 可用 `python -c "from urllib.parse import quote; print(quote('你的密碼', safe=''))"` 產生。
+
 (也可改寫在 `.streamlit/secrets.toml`：`DATABASE_URL = "postgresql://..."`)
 
 ### 3. 安裝套件並啟動
