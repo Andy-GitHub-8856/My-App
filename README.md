@@ -25,9 +25,19 @@ python3 server.py
 | `transactions` | `id`, `type`（expense / income）, `amount`, `category`, `date`（YYYY-MM-DD）, `note`, `created_at` |
 | `settings` | `key`, `value`（`budget`、`started`） |
 
+### 單一檔案版（內含 SQLite，可離線）
+
+`dist/小記帳.html` 把網頁、程式和 SQLite（[sql.js](https://github.com/sql-js/sql.js)，SQLite 的 WebAssembly 版）全部包在一個檔案裡，
+不需要伺服器也不需要網路，直接用瀏覽器打開即可。
+
+- 資料庫存在該瀏覽器的 IndexedDB 中，格式就是標準 SQLite
+- 選單「下載 SQLite 資料庫」可取得 `.db` 檔，「開啟 SQLite 資料庫…」可載入 `.db` 檔
+- 資料表結構和 `server.py` 的 `ledger.db` 相同，兩個版本可以互相搬資料
+- 修改原始碼後執行 `python3 build.py` 重新產生
+
 ### 其他開啟方式
 
-直接用瀏覽器開啟 `index.html` 或 `dist/小記帳.html` 也能用，但資料只存在瀏覽器的 localStorage。
+直接用瀏覽器開啟 `index.html` 也能用，但資料只存在瀏覽器的 localStorage。
 
 發佈到 claude.ai 時，紀錄會另外同步到你帳號底下的私有空間（每月一份文件），只有你自己看得到，換手機、換電腦開同一個連結都看得到同一本帳。
 
@@ -58,6 +68,8 @@ python3 server.py
 
 ```
 server.py       本機伺服器與 SQLite 儲存（Python 標準函式庫）
+build.py        產生單一檔案版 dist/小記帳.html
+vendor/sql.js/  SQLite 的 WebAssembly 版（MIT License）
 index.html      頁面結構
 css/style.css   樣式（含深色模式）
 js/app.js       記帳邏輯、分析計算與 SVG 圖表

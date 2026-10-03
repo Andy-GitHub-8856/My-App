@@ -100,6 +100,7 @@
     saveLocal();
     cloud.push(all ? null : months, settings || all);
     sqlite.push(all ? null : months, settings || all);
+    embedded.push(all ? null : months, settings || all);
   }
   const monthKey = date => date.slice(0, 7);
   function validTx(t) {
@@ -260,6 +261,181 @@
     },
   };
 
+  // ================= 內嵌 SQLite（單一 HTML 檔版本） =================
+  // dist/小記帳.html 內含 sql.js（SQLite 的 WebAssembly 版），
+  // 資料庫檔案存在瀏覽器的 IndexedDB，資料表結構和 server.py 的 ledger.db 相同，可以互相匯入。
+  const SCHEMA = `
+    CREATE TABLE IF NOT EXISTS transactions (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('expense', 'income')),
+      amount REAL NOT NULL CHECK (amount > 0),
+      category TEXT NOT NULL,
+      date TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions (date);
+    CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`;
+
+  const idb = {
+    open() {
+      return new Promise((resolve, reject) => {
+        const r = indexedDB.open('ledger-sqlite', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('files');
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+      });
+    },
+    async get(key) {
+      const conn = await this.open();
+      return new Promise((resolve, reject) => {
+        const r = conn.transaction('files').objectStore('files').get(key);
+        r.onsuccess = () => resolve(r.result || null);
+        r.onerror = () => reject(r.error);
+      });
+    },
+    async set(key, value) {
+      const conn = await this.open();
+      return new Promise((resolve, reject) => {
+        const tx = conn.transaction('files', 'readwrite');
+        tx.objectStore('files').put(value, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    },
+  };
+
+  const embedded = {
+    on: false,
+    SQL: null,
+    conn: null,
+    queue: Promise.resolve(),
+
+    async init() {
+      if (!window.initSqlJs || !window.SQLJS_WASM_BASE64 || window.claude) return;
+      try {
+        const bin = Uint8Array.from(atob(window.SQLJS_WASM_BASE64), c => c.charCodeAt(0));
+        this.SQL = await window.initSqlJs({ wasmBinary: bin });
+        const saved = await idb.get('ledger.db').catch(() => null);
+        this.conn = new this.SQL.Database(saved || undefined);
+        this.conn.exec(SCHEMA);
+      } catch {
+        setSync('dbError');
+        return;
+      }
+      this.on = true;
+      navigator.storage?.persist?.().catch(() => {});
+      $('#backupDbBtn').hidden = false;
+      $('#openDbBtn').hidden = false;
+      const state = this.read();
+      if (!state.txs.length && !state.started && (db.txs.length || db.budget)) {
+        // 資料庫還是空的：把瀏覽器裡原本的紀錄搬進 SQLite
+        this.push(null, true);
+        if (db.txs.length) toast(`已把 ${db.txs.length} 筆紀錄搬進 SQLite`);
+      } else {
+        this.applyState(state);
+      }
+      setSync('wasm');
+    },
+
+    read(conn = this.conn) {
+      const txs = [];
+      const st = conn.prepare('SELECT id, type, amount, category, date, note, created_at FROM transactions ORDER BY date, created_at');
+      while (st.step()) {
+        const r = st.getAsObject();
+        txs.push({ id: String(r.id), type: r.type, amount: r.amount, category: r.category, date: r.date, note: r.note || '', createdAt: r.created_at || 0 });
+      }
+      st.free();
+      const settings = {};
+      const s2 = conn.prepare('SELECT key, value FROM settings');
+      while (s2.step()) { const r = s2.getAsObject(); settings[r.key] = r.value; }
+      s2.free();
+      const budget = parseFloat(settings.budget) || 0;
+      return { txs: txs.filter(validTx), budget: budget > 0 ? budget : null, started: settings.started === '1' || txs.length > 0 };
+    },
+
+    applyState(state) {
+      db = state;
+      saveLocal();
+      if (demo?.auto && db.started) demo = null;
+      render();
+    },
+
+    push(months, settings) {
+      if (!this.on) return;
+      const c = this.conn;
+      const rows = db.txs.map(cleanTx);
+      const insert = list => {
+        const st = c.prepare('INSERT OR REPLACE INTO transactions (id, type, amount, category, date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const t of list) st.run([t.id, t.type, t.amount, t.category, t.date, t.note, t.createdAt]);
+        st.free();
+      };
+      try {
+        c.exec('BEGIN');
+        if (months === null) {
+          c.exec('DELETE FROM transactions');
+          insert(rows);
+        } else {
+          for (const k of new Set(months)) {
+            c.run('DELETE FROM transactions WHERE substr(date, 1, 7) = ?', [k]);
+            insert(rows.filter(t => monthKey(t.date) === k));
+          }
+        }
+        if (settings || months === null) {
+          c.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('budget', ?)", [String(db.budget || 0)]);
+          c.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('started', ?)", [db.started ? '1' : '0']);
+        }
+        c.exec('COMMIT');
+      } catch {
+        try { c.exec('ROLLBACK'); } catch { /* 忽略 */ }
+        setSync('dbError');
+        toast('⚠️ 寫入 SQLite 失敗，紀錄暫存在瀏覽器');
+        return;
+      }
+      this.persist();
+    },
+
+    // 把整個資料庫檔案存回 IndexedDB（依序執行，避免舊版本蓋掉新版本）
+    persist() {
+      const bytes = this.conn.export();
+      this.queue = this.queue.then(() => idb.set('ledger.db', bytes)).then(() => setSync('wasm')).catch(() => {
+        setSync('dbError');
+        toast('⚠️ 無法把資料庫存到瀏覽器，請先「下載 SQLite 資料庫」備份');
+      });
+    },
+
+    download() {
+      download(`ledger_${ymd(today)}.db`, this.conn.export(), 'application/vnd.sqlite3');
+    },
+
+    async openFile(file) {
+      let next, state;
+      try {
+        next = new this.SQL.Database(new Uint8Array(await file.arrayBuffer()));
+        next.exec(SCHEMA);
+        state = this.read(next);
+      } catch {
+        next?.close();
+        toast('⚠️ 這個檔案不是小記帳的 SQLite 資料庫');
+        return;
+      }
+      const ok = await ask({
+        title: '開啟 SQLite 資料庫',
+        message: `這個資料庫有 ${state.txs.length} 筆紀錄，會取代目前的 ${db.txs.length} 筆紀錄。`,
+        okText: '開啟',
+        danger: db.txs.length > 0,
+      });
+      if (!ok) { next.close(); return; }
+      this.conn.close();
+      this.conn = next;
+      demo = null;
+      state.started = true;
+      this.applyState(state);
+      this.push(null, true);
+      toast(`✅ 已開啟 ${state.txs.length} 筆紀錄`);
+    },
+  };
+
   async function withRetry(job) {
     try { return await job(); } catch (e) {
       if (e?.code !== 'unavailable') throw e;
@@ -276,6 +452,8 @@
       error: ['⚠️', '同步失敗，紀錄暫存在這台裝置'],
       off: ['📴', '雲端同步已中斷，紀錄暫存在這台裝置'],
       sqlite: ['🗄️', '已存到本機 SQLite 資料庫'],
+      wasm: ['🗄️', '已存到內建 SQLite 資料庫（存在這個瀏覽器裡）'],
+      dbError: ['⚠️', 'SQLite 無法使用，紀錄暫存在瀏覽器'],
       sqliteError: ['⚠️', '無法寫入 SQLite，紀錄暫存在瀏覽器'],
     };
     const [icon, label] = map[state];
@@ -939,7 +1117,8 @@
       'export-csv': exportCsv,
       'export-json': exportJson,
       'import-json': () => $('#importFile').click(),
-      'backup-db': () => { location.href = 'api/backup'; },
+      'backup-db': () => (embedded.on ? embedded.download() : (location.href = 'api/backup')),
+      'open-db': () => $('#openDbFile').click(),
       'demo': () => (demo ? hideDemo() : showDemo(false)),
       'clear': clearAll,
     })[a]?.();
@@ -1015,11 +1194,11 @@
     const lines = [['日期', '類型', '分類', '金額', '備註'].join(',')];
     [...db.txs].sort((a, b) => a.date.localeCompare(b.date)).forEach(t =>
       lines.push([t.date, TYPE_NAME[t.type], catOf(t.type, t.category).name, t.amount, esc(t.note || '')].join(',')));
-    download(`記帳_${ymd(today)}.csv`, '﻿' + lines.join('\n'), 'text/csv;charset=utf-8');
+    download(`ledger_${ymd(today)}.csv`, '﻿' + lines.join('\n'), 'text/csv;charset=utf-8');
   }
   function exportJson() {
     if (!db.txs.length) { toast('目前沒有可以備份的紀錄'); return; }
-    download(`記帳備份_${ymd(today)}.json`, JSON.stringify({ txs: db.txs.map(cleanTx), budget: db.budget }, null, 2), 'application/json');
+    download(`ledger-backup_${ymd(today)}.json`, JSON.stringify({ txs: db.txs.map(cleanTx), budget: db.budget }, null, 2), 'application/json');
   }
   $('#importFile').addEventListener('change', async e => {
     const f = e.target.files[0];
@@ -1147,4 +1326,10 @@
   route();
   cloud.init();
   sqlite.init();
+  embedded.init();
+  $('#openDbFile').addEventListener('change', e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f && embedded.on) embedded.openFile(f);
+  });
 })();

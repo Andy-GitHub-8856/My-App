@@ -29,11 +29,13 @@
           <button type="button" data-action="export-json">備份 JSON</button>
           <button type="button" data-action="import-json">從 JSON 還原</button>
           <button type="button" data-action="backup-db" id="backupDbBtn" hidden>下載 SQLite 資料庫</button>
+          <button type="button" data-action="open-db" id="openDbBtn" hidden>開啟 SQLite 資料庫…</button>
           <button type="button" data-action="demo">查看示範資料</button>
           <hr>
           <button type="button" data-action="clear" class="danger">清除全部資料</button>
         </div>
         <input type="file" id="importFile" accept="application/json,.json" hidden>
+        <input type="file" id="openDbFile" accept=".db,.sqlite,.sqlite3,application/vnd.sqlite3,application/x-sqlite3" hidden>
       </div>
     </header>
 
