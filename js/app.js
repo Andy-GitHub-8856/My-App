@@ -99,6 +99,7 @@
   function save({ months = [], settings = false, all = false } = {}) {
     saveLocal();
     cloud.push(all ? null : months, settings || all);
+    sqlite.push(all ? null : months, settings || all);
   }
   const monthKey = date => date.slice(0, 7);
   function validTx(t) {
@@ -206,6 +207,59 @@
       }
     },
   };
+  // ================= 本機 SQLite（透過 server.py） =================
+  // 用 python3 server.py 開啟時，資料存在 SQLite 檔；localStorage 只當快取。
+  const sqlite = {
+    on: false,
+    queue: Promise.resolve(),
+
+    async init() {
+      if (window.claude || !/^https?:$/.test(location.protocol)) return;
+      let state;
+      try {
+        const res = await fetch('api/state', { cache: 'no-store' });
+        if (!res.ok || !(res.headers.get('Content-Type') || '').includes('application/json')) return;
+        state = await res.json();
+      } catch { return; }
+      this.on = true;
+      $('#backupDbBtn').hidden = false;
+      const serverTxs = (state.txs || []).filter(validTx);
+      if (!serverTxs.length && !state.started && (db.txs.length || db.budget)) {
+        // 資料庫還是空的：把這個瀏覽器裡原本的紀錄搬進 SQLite
+        this.push(null, true);
+        if (db.txs.length) toast(`已把 ${db.txs.length} 筆紀錄搬到本機 SQLite`);
+      } else {
+        db = { txs: serverTxs, budget: state.budget > 0 ? state.budget : null, started: !!state.started || serverTxs.length > 0 };
+        saveLocal();
+        if (demo?.auto && db.started) demo = null;
+        render();
+      }
+      setSync('sqlite');
+    },
+
+    push(months, settings) {
+      if (!this.on) return;
+      const snapshot = db.txs.map(cleanTx);
+      const put = (url, body) => async () => {
+        const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
+      };
+      const jobs = [];
+      if (months === null) {
+        jobs.push(put('api/state', { txs: snapshot, budget: db.budget || 0, started: !!db.started }));
+      } else {
+        for (const k of new Set(months)) jobs.push(put('api/months/' + k, { txs: snapshot.filter(t => monthKey(t.date) === k) }));
+        if (settings) jobs.push(put('api/settings', { budget: db.budget || 0, started: !!db.started }));
+      }
+      for (const job of jobs) {
+        this.queue = this.queue.then(job).then(() => setSync('sqlite')).catch(() => {
+          setSync('sqliteError');
+          toast('⚠️ 無法寫入 SQLite，請確認 server.py 還在執行');
+        });
+      }
+    },
+  };
+
   async function withRetry(job) {
     try { return await job(); } catch (e) {
       if (e?.code !== 'unavailable') throw e;
@@ -221,6 +275,8 @@
       on: ['☁️', '已同步到你的 Claude 帳號，只有你看得到'],
       error: ['⚠️', '同步失敗，紀錄暫存在這台裝置'],
       off: ['📴', '雲端同步已中斷，紀錄暫存在這台裝置'],
+      sqlite: ['🗄️', '已存到本機 SQLite 資料庫'],
+      sqliteError: ['⚠️', '無法寫入 SQLite，紀錄暫存在瀏覽器'],
     };
     const [icon, label] = map[state];
     b.hidden = false;
@@ -883,6 +939,7 @@
       'export-csv': exportCsv,
       'export-json': exportJson,
       'import-json': () => $('#importFile').click(),
+      'backup-db': () => { location.href = 'api/backup'; },
       'demo': () => (demo ? hideDemo() : showDemo(false)),
       'clear': clearAll,
     })[a]?.();
@@ -1089,4 +1146,5 @@
   if (!db.started && !db.txs.length) demo = { txs: buildDemo(), budget: 30000, auto: true };
   route();
   cloud.init();
+  sqlite.init();
 })();

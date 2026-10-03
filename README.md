@@ -4,8 +4,30 @@
 
 ## 使用方式
 
-直接用瀏覽器開啟 `index.html` 即可（或在專案目錄執行 `python3 -m http.server` 後開啟 http://localhost:8000 ）。
-資料儲存在瀏覽器的 localStorage，不會上傳到任何伺服器。
+### 推薦：本機 SQLite 版
+
+```bash
+python3 server.py
+```
+
+然後打開 http://localhost:8000 。資料會存在專案目錄的 `ledger.db`（SQLite 檔案），只需要 Python 3，不用安裝任何套件。
+
+- 換資料庫位置：`python3 server.py --db ~/Documents/記帳.db`
+- 換連接埠：`python3 server.py --port 9000`
+- 預設只接受本機連線（127.0.0.1）
+- 選單裡的「下載 SQLite 資料庫」會產生一份一致的備份檔
+- 第一次用 SQLite 版開啟時，瀏覽器裡原本的紀錄會自動搬進資料庫
+
+資料表：
+
+| 資料表 | 欄位 |
+|---|---|
+| `transactions` | `id`, `type`（expense / income）, `amount`, `category`, `date`（YYYY-MM-DD）, `note`, `created_at` |
+| `settings` | `key`, `value`（`budget`、`started`） |
+
+### 其他開啟方式
+
+直接用瀏覽器開啟 `index.html` 或 `dist/小記帳.html` 也能用，但資料只存在瀏覽器的 localStorage。
 
 發佈到 claude.ai 時，紀錄會另外同步到你帳號底下的私有空間（每月一份文件），只有你自己看得到，換手機、換電腦開同一個連結都看得到同一本帳。
 
@@ -35,6 +57,7 @@
 ## 檔案結構
 
 ```
+server.py       本機伺服器與 SQLite 儲存（Python 標準函式庫）
 index.html      頁面結構
 css/style.css   樣式（含深色模式）
 js/app.js       記帳邏輯、分析計算與 SVG 圖表
