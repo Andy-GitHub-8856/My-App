@@ -76,25 +76,160 @@
   function safeSet(key, val) { try { localStorage.setItem(key, val); return true; } catch { return false; } }
 
   // ================= 資料 =================
+  // db：使用者自己的帳本（存在瀏覽器，有雲端時同步到個人私有空間）
+  // demo：示範資料，只存在記憶體，從不寫入儲存
   let db = load();
+  let demo = null;
+  const view = () => demo || db;
+  const pageLoadedAt = Date.now();
 
   function load() {
     try {
       const raw = JSON.parse(safeGet(STORE_KEY));
-      if (raw && Array.isArray(raw.txs)) return { txs: raw.txs.filter(validTx), budget: raw.budget ?? null };
+      if (raw && Array.isArray(raw.txs)) {
+        return { txs: raw.txs.filter(validTx), budget: raw.budget ?? null, started: !!raw.started || raw.txs.length > 0 };
+      }
     } catch { /* 忽略壞資料 */ }
-    return { txs: [], budget: null };
+    return { txs: [], budget: null, started: false };
   }
-  function save() {
-    if (!safeSet(STORE_KEY, JSON.stringify(db))) toast('⚠️ 無法儲存到瀏覽器（可能是無痕模式）');
+  function saveLocal() {
+    safeSet(STORE_KEY, JSON.stringify(db));
   }
+  // 存檔：months 是有變動的月份（'2026-10'），settings 表示預算等設定有變
+  function save({ months = [], settings = false, all = false } = {}) {
+    saveLocal();
+    cloud.push(all ? null : months, settings || all);
+  }
+  const monthKey = date => date.slice(0, 7);
   function validTx(t) {
     return t && (t.type === 'expense' || t.type === 'income') &&
       typeof t.amount === 'number' && isFinite(t.amount) && t.amount > 0 &&
       typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date);
   }
+  const cleanTx = t => ({
+    id: String(t.id), type: t.type, amount: t.amount, date: t.date,
+    category: String(t.category || 'other'), note: String(t.note || '').slice(0, 60), createdAt: t.createdAt || 0,
+  });
 
-  const txsIn = (from, to) => db.txs.filter(t => t.date >= from && t.date <= to);
+  // ================= 雲端同步（claude.ai 個人私有空間） =================
+  // 每個月一份文件 data/users/<id>/m2026-10，另有一份 settings。
+  // 在一般瀏覽器開啟時沒有 window.claude，就只用 localStorage。
+  const cloud = {
+    col: null,
+    synced: false,
+    queue: Promise.resolve(),
+
+    async init() {
+      if (!window.claude?.use) return;
+      try {
+        const [cdb, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+        if (!cdb || !user) return;
+        const id = await user.id();
+        if (!id) return;
+        this.col = cdb.collection('data/users/' + id);
+        this.col.onSnapshot(snap => this.apply(snap), () => setSync('off'));
+        setSync('syncing');
+      } catch { this.col = null; }
+    },
+
+    apply(snap) {
+      // 第一份「伺服器確認過」的快照之前，不拿快取覆蓋本機資料
+      if (!this.synced && snap.metadata.fromCache) return;
+      const remoteTxs = [];
+      let settings = null;
+      for (const d of snap.docs) {
+        const body = d.data() || {};
+        if (d.id === 'settings') settings = body;
+        else if (d.id.startsWith('m') && Array.isArray(body.txs)) remoteTxs.push(...body.txs.filter(validTx));
+      }
+      if (!this.synced) {
+        this.synced = true;
+        if (snap.empty) {
+          // 雲端還是空的：把這台裝置上的帳本上傳
+          if (db.txs.length || db.started || db.budget) this.push(null, true);
+          setSync('on');
+          return;
+        }
+        // 雲端已有資料：以雲端為準，但保留這次開啟後、同步完成前新增的紀錄
+        const ids = new Set(remoteTxs.map(t => t.id));
+        const fresh = db.txs.filter(t => !ids.has(t.id) && t.createdAt >= pageLoadedAt);
+        remoteTxs.push(...fresh);
+        if (fresh.length) setTimeout(() => this.push([...new Set(fresh.map(t => monthKey(t.date)))], false));
+      }
+      db = {
+        txs: remoteTxs,
+        budget: settings ? (settings.budget > 0 ? settings.budget : null) : db.budget,
+        started: (settings && !!settings.started) || remoteTxs.length > 0 || db.started,
+      };
+      saveLocal();
+      if (demo?.auto && db.started) demo = null;
+      setSync('on');
+      render();
+    },
+
+    // months === null 代表全部月份（含刪除雲端多出來的月份）
+    push(months, settings) {
+      if (!this.col || !this.synced) return;
+      const col = this.col;
+      const snapshot = db.txs.map(cleanTx);
+      const byMonth = new Map();
+      for (const t of snapshot) {
+        const k = monthKey(t.date);
+        if (!byMonth.has(k)) byMonth.set(k, []);
+        byMonth.get(k).push(t);
+      }
+      const jobs = [];
+      if (months === null) {
+        jobs.push(async () => {
+          const existing = await col.get();
+          for (const d of existing.docs) {
+            if (d.id.startsWith('m') && !byMonth.has(d.id.slice(1))) await col.doc(d.id).delete();
+          }
+          for (const [k, txs] of byMonth) await col.doc('m' + k).set({ txs });
+        });
+      } else {
+        for (const k of new Set(months)) {
+          const txs = byMonth.get(k);
+          jobs.push(() => (txs ? col.doc('m' + k).set({ txs }) : col.doc('m' + k).delete()));
+        }
+      }
+      if (settings) {
+        const body = { budget: db.budget || 0, started: !!db.started };
+        jobs.push(() => col.doc('settings').set(body));
+      }
+      // 一次只寫一份文件，依序執行
+      for (const job of jobs) {
+        this.queue = this.queue.then(() => withRetry(job)).catch(e => {
+          setSync('error');
+          toast(e?.code === 'quota_exceeded' ? '⚠️ 雲端空間已滿，紀錄只存在這台裝置' : '⚠️ 雲端同步失敗，紀錄已先存在這台裝置');
+        });
+      }
+    },
+  };
+  async function withRetry(job) {
+    try { return await job(); } catch (e) {
+      if (e?.code !== 'unavailable') throw e;
+      await new Promise(r => setTimeout(r, 500 + Math.random() * 1000));
+      return job();
+    }
+  }
+  function setSync(state) {
+    const b = $('#syncBadge');
+    if (!b) return;
+    const map = {
+      syncing: ['⏳', '正在同步…'],
+      on: ['☁️', '已同步到你的 Claude 帳號，只有你看得到'],
+      error: ['⚠️', '同步失敗，紀錄暫存在這台裝置'],
+      off: ['📴', '雲端同步已中斷，紀錄暫存在這台裝置'],
+    };
+    const [icon, label] = map[state];
+    b.hidden = false;
+    b.textContent = icon;
+    b.title = label;
+    b.setAttribute('aria-label', label);
+  }
+
+  const txsIn = (from, to) => view().txs.filter(t => t.date >= from && t.date <= to);
   const sum = (list, type) => list.reduce((s, t) => (t.type === type ? s + t.amount : s), 0);
 
   // ================= 狀態 =================
@@ -126,7 +261,10 @@
 
   // ================= 路由 =================
   function route() {
-    ui.route = location.hash.startsWith('#/analysis') ? 'analysis' : 'ledger';
+    ui.route = location.hash.replace(/^#\/?/, '') === 'analysis' ? 'analysis' : 'ledger';
+    showRoute();
+  }
+  function showRoute() {
     $$('.tab').forEach(a => {
       const on = a.dataset.route === ui.route;
       a.classList.toggle('active', on);
@@ -137,6 +275,14 @@
     render();
   }
   window.addEventListener('hashchange', route);
+  // 內嵌頁面不一定能改網址，所以點分頁時直接切換
+  $$('.tab').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault();
+    ui.route = a.dataset.route;
+    try { history.replaceState(null, '', '#' + ui.route); } catch { /* 忽略 */ }
+    showRoute();
+    window.scrollTo(0, 0);
+  }));
 
   // ================= 月份切換 =================
   function shiftMonth(delta) {
@@ -229,15 +375,26 @@
       date: dateInput.value,
       note: noteInput.value.trim(),
     };
+    const months = [monthKey(data.date)];
+    let settings = false;
+    if (demo) {
+      // 記下第一筆真的帳：離開示範模式
+      demo = null;
+      ui.editingId = null;
+    }
+    if (!db.started) { db.started = true; settings = true; }
     if (ui.editingId) {
       const i = db.txs.findIndex(t => t.id === ui.editingId);
-      if (i >= 0) db.txs[i] = { ...db.txs[i], ...data };
+      if (i >= 0) {
+        months.push(monthKey(db.txs[i].date));
+        db.txs[i] = { ...db.txs[i], ...data };
+      }
       toast('✅ 已更新');
     } else {
       db.txs.push({ id: uid(), createdAt: Date.now(), ...data });
       toast(`✅ 已記下 ${catOf(data.type, data.category).name} ${money(data.amount)}`);
     }
-    save();
+    save({ months, settings });
     // 記到別的月份時，跳到那個月份讓使用者看到
     const d = parseYmd(data.date);
     ui.month = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -264,17 +421,18 @@
 
     // 預算
     const box = $('#budgetBox');
-    if (db.budget > 0) {
+    const budget = view().budget;
+    if (budget > 0) {
       box.hidden = false;
-      const ratio = exp / db.budget;
+      const ratio = exp / budget;
       const fill = $('#budgetFill');
       fill.style.width = Math.min(100, ratio * 100) + '%';
       fill.classList.toggle('warn', ratio >= 0.8 && ratio < 1);
       fill.classList.toggle('over', ratio >= 1);
-      const left = db.budget - exp;
+      const left = budget - exp;
       $('#budgetText').textContent = left >= 0
-        ? `${money(exp)} / ${money(db.budget)}・剩 ${money(left)}`
-        : `${money(exp)} / ${money(db.budget)}・超支 ${money(-left)}`;
+        ? `${money(exp)} / ${money(budget)}・剩 ${money(left)}`
+        : `${money(exp)} / ${money(budget)}・超支 ${money(-left)}`;
     } else box.hidden = true;
 
     if (!ui.editingId && !amountInput.value) dateInput.value = defaultDate();
@@ -293,7 +451,7 @@
         el('span', { class: 'big', text: q ? '🔍' : '📝' }),
         q ? '找不到符合的紀錄' : '這個月還沒有紀錄，記下第一筆吧！',
         !q && !db.txs.length
-          ? el('div', {}, el('button', { class: 'btn ghost', type: 'button', text: '載入示範資料看看', onclick: loadDemo }))
+          ? el('div', {}, el('button', { class: 'btn ghost', type: 'button', text: '看看示範資料', onclick: () => showDemo(false) }))
           : null,
       ));
       return;
@@ -329,7 +487,7 @@
         t.note ? el('div', { class: 'tx-note', text: t.note }) : null,
       ),
       el('div', { class: 'tx-amt ' + t.type, text: (t.type === 'income' ? '+' : '-') + money(t.amount) }),
-      el('div', { class: 'tx-ops' },
+      demo ? null : el('div', { class: 'tx-ops' },
         el('button', { type: 'button', title: '編輯', 'aria-label': '編輯', text: '✎', onclick: () => startEdit(t) }),
         el('button', { type: 'button', class: 'del', title: '刪除', 'aria-label': '刪除', text: '✕', onclick: () => removeTx(t) }),
       ),
@@ -341,9 +499,10 @@
     if (idx < 0) return;
     db.txs.splice(idx, 1);
     if (ui.editingId === t.id) resetForm();
-    save();
+    const months = [monthKey(t.date)];
+    save({ months });
     render();
-    toast('已刪除一筆', '復原', () => { db.txs.push(t); save(); render(); });
+    toast('已刪除一筆', '復原', () => { db.txs.push(t); save({ months }); render(); });
   }
 
   $('#search').addEventListener('input', e => { ui.search = e.target.value; renderLedger(); });
@@ -724,28 +883,77 @@
       'export-csv': exportCsv,
       'export-json': exportJson,
       'import-json': () => $('#importFile').click(),
-      'demo': loadDemo,
+      'demo': () => (demo ? hideDemo() : showDemo(false)),
       'clear': clearAll,
     })[a]?.();
   });
 
-  function setBudget() {
-    const v = prompt('每月支出預算（留空或 0 代表不設定）', db.budget || '');
+  // ================= 對話框（取代 prompt / confirm） =================
+  function ask({ title, message, input, okText = '確定', danger = false }) {
+    return new Promise(resolve => {
+      const prevFocus = document.activeElement;
+      let field = null;
+      if (input) {
+        field = el('input', {
+          id: 'dialogInput', class: 'dialog-input', type: input.type || 'text',
+          inputmode: input.inputmode, placeholder: input.placeholder || '', 'aria-label': title,
+        });
+        field.value = input.value ?? '';
+      }
+      const close = val => { overlay.remove(); document.removeEventListener('keydown', onKey); prevFocus?.focus?.(); resolve(val); };
+      const ok = () => close(field ? field.value : true);
+      const onKey = e => { if (e.key === 'Escape') close(null); };
+      const overlay = el('div', { class: 'dialog-overlay', onclick: e => { if (e.target === overlay) close(null); } },
+        el('form', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, onsubmit: e => { e.preventDefault(); ok(); } },
+          el('h3', { text: title }),
+          message ? el('p', { text: message }) : null,
+          field,
+          el('div', { class: 'dialog-actions' },
+            el('button', { type: 'button', class: 'btn ghost', text: '取消', onclick: () => close(null) }),
+            el('button', { type: 'submit', class: 'btn ' + (danger ? 'danger' : 'primary'), text: okText }),
+          ),
+        ),
+      );
+      document.addEventListener('keydown', onKey);
+      document.body.append(overlay);
+      (field || $('.dialog-actions .btn:last-child', overlay)).focus();
+    });
+  }
+
+  async function setBudget() {
+    const v = await ask({
+      title: '每月支出預算',
+      message: '留空或填 0 代表不設定預算。',
+      input: { type: 'number', inputmode: 'decimal', value: db.budget || '', placeholder: '例如 30000' },
+      okText: '儲存',
+    });
     if (v === null) return;
     const n = parseFloat(v);
-    db.budget = n > 0 ? n : null;
-    save();
+    db.budget = n > 0 ? Math.round(n * 100) / 100 : null;
+    save({ settings: true });
     render();
     toast(db.budget ? `已設定每月預算 ${money(db.budget)}` : '已取消預算');
   }
 
-  function download(name, content, mime) {
+  async function download(name, content, mime) {
+    // 在 claude.ai 裡要透過 downloads 能力存檔；一般瀏覽器用下載連結
+    const dl = window.claude?.use ? await window.claude.use('downloads') : null;
+    if (dl) {
+      try {
+        await dl.save({ filename: name, data: content });
+        toast('✅ 已匯出');
+      } catch (e) {
+        if (e?.code !== 'declined') toast('⚠️ 無法匯出檔案，請稍後再試');
+      }
+      return;
+    }
     const a = el('a', { href: URL.createObjectURL(new Blob([content], { type: mime })), download: name });
     document.body.append(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
   }
   function exportCsv() {
+    if (!db.txs.length) { toast('目前沒有可以匯出的紀錄'); return; }
     const esc = s => `"${String(s).replace(/"/g, '""')}"`;
     const lines = [['日期', '類型', '分類', '金額', '備註'].join(',')];
     [...db.txs].sort((a, b) => a.date.localeCompare(b.date)).forEach(t =>
@@ -753,58 +961,84 @@
     download(`記帳_${ymd(today)}.csv`, '﻿' + lines.join('\n'), 'text/csv;charset=utf-8');
   }
   function exportJson() {
-    download(`記帳備份_${ymd(today)}.json`, JSON.stringify(db, null, 2), 'application/json');
+    if (!db.txs.length) { toast('目前沒有可以備份的紀錄'); return; }
+    download(`記帳備份_${ymd(today)}.json`, JSON.stringify({ txs: db.txs.map(cleanTx), budget: db.budget }, null, 2), 'application/json');
   }
   $('#importFile').addEventListener('change', async e => {
     const f = e.target.files[0];
     e.target.value = '';
     if (!f) return;
+    let data, txs;
     try {
-      const data = JSON.parse(await f.text());
-      const txs = (Array.isArray(data) ? data : data.txs || []).filter(validTx)
-        .map(t => ({
-          id: String(t.id || uid()), type: t.type, amount: t.amount, date: t.date,
-          category: catOf(t.type, t.category).id, note: String(t.note || '').slice(0, 60), createdAt: t.createdAt || Date.now(),
-        }));
+      data = JSON.parse(await f.text());
+      txs = (Array.isArray(data) ? data : data.txs || []).filter(validTx)
+        .map(t => cleanTx({ ...t, id: t.id || uid(), category: catOf(t.type, t.category).id, createdAt: t.createdAt || Date.now() }));
       if (!txs.length) throw new Error('empty');
-      if (!confirm(`將以備份中的 ${txs.length} 筆紀錄取代目前資料，確定嗎？`)) return;
-      db = { txs, budget: data.budget > 0 ? data.budget : null };
-      save();
-      render();
-      toast(`✅ 已還原 ${txs.length} 筆紀錄`);
     } catch {
-      toast('⚠️ 檔案格式不正確');
+      toast('⚠️ 這個檔案不是小記帳的備份檔');
+      return;
     }
+    const ok = await ask({
+      title: '從備份還原',
+      message: `備份裡有 ${txs.length} 筆紀錄，會取代目前的 ${db.txs.length} 筆紀錄。`,
+      okText: '還原',
+      danger: db.txs.length > 0,
+    });
+    if (!ok) return;
+    demo = null;
+    db = { txs, budget: data.budget > 0 ? data.budget : db.budget, started: true };
+    save({ all: true });
+    render();
+    toast(`✅ 已還原 ${txs.length} 筆紀錄`);
   });
 
-  function clearAll() {
+  async function clearAll() {
     if (!db.txs.length) { toast('目前沒有資料'); return; }
-    if (!confirm(`確定要刪除全部 ${db.txs.length} 筆紀錄嗎？此動作無法復原。`)) return;
-    db = { txs: [], budget: db.budget };
-    save();
+    const ok = await ask({
+      title: '清除全部資料',
+      message: `會刪除全部 ${db.txs.length} 筆紀錄，而且無法復原。建議先用「備份 JSON」存一份。`,
+      okText: '全部刪除',
+      danger: true,
+    });
+    if (!ok) return;
+    db = { txs: [], budget: db.budget, started: true };
+    save({ all: true });
     resetForm();
     render();
     toast('已清除全部資料');
   }
 
-  function loadDemo() {
-    if (db.txs.length && !confirm('示範資料會加入到現有紀錄中，確定嗎？')) return;
+  // ================= 示範資料（只在記憶體裡，不會存檔） =================
+  function showDemo(auto) {
+    demo = { txs: buildDemo(), budget: 30000, auto };
+    ui.month = new Date(today.getFullYear(), today.getMonth(), 1);
+    resetForm();
+    render();
+  }
+  function hideDemo() {
+    const wasAuto = demo?.auto;
+    demo = null;
+    if (wasAuto && !db.started) { db.started = true; save({ settings: true }); }
+    render();
+  }
+  $('#demoExit').addEventListener('click', hideDemo);
+
+  function buildDemo() {
     let seed = 42;
     const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     const pick = arr => arr[Math.floor(rnd() * arr.length)];
     const notes = {
       food: ['早餐蛋餅', '午餐便當', '晚餐拉麵', '手搖飲', '咖啡', '超商', '火鍋聚餐', '早午餐'],
-      transport: ['捷運', '公車', 'Uber', '加油', '高鐵'],
       shopping: ['衣服', '日用品', '網購', '鞋子', '3C 配件'],
-      home: ['房租', '水電費', '網路費', '清潔用品'],
       fun: ['電影', 'Netflix', '唱歌', '遊戲點數', '展覽'],
       health: ['診所', '藥局', '健身房'],
       edu: ['線上課程', '書籍', '講座'],
       other: ['紅包', '捐款', '雜支'],
     };
     const out = [];
+    let n = 0;
     const add = (d, type, category, amount, note) =>
-      out.push({ id: uid(), createdAt: d.getTime(), type, category, amount: Math.round(amount), date: ymd(d), note });
+      out.push({ id: 'demo' + n++, createdAt: d.getTime() + n, type, category, amount: Math.round(amount), date: ymd(d), note });
 
     for (let back = 5; back >= 0; back--) {
       const ms = new Date(today.getFullYear(), today.getMonth() - back, 1);
@@ -830,17 +1064,15 @@
         if (rnd() < 0.03) add(day, 'expense', 'other', 100 + rnd() * 800, pick(notes.other));
       }
     }
-    db.txs.push(...out);
-    if (!db.budget) db.budget = 30000;
-    save();
-    ui.month = new Date(today.getFullYear(), today.getMonth(), 1);
-    render();
-    toast(`✅ 已載入 ${out.length} 筆示範資料`);
+    return out;
   }
 
   // ================= 渲染入口 =================
   function render() {
     renderMonthLabel();
+    $('#demoBanner').hidden = !demo;
+    const demoBtn = $('[data-action="demo"]');
+    if (demoBtn) demoBtn.textContent = demo ? '隱藏示範資料' : '查看示範資料';
     if (ui.route === 'ledger') renderLedger();
     else renderAnalysis();
   }
@@ -853,5 +1085,8 @@
 
   setFormType('expense');
   resetForm();
+  // 第一次使用時先顯示示範資料，讓畫面不是空的
+  if (!db.started && !db.txs.length) demo = { txs: buildDemo(), budget: 30000, auto: true };
   route();
+  cloud.init();
 })();

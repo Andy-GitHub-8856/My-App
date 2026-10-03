@@ -16,10 +16,11 @@
         <span class="brand-name">小記帳</span>
       </div>
       <nav class="tabs" role="tablist" aria-label="頁面">
-        <a href="#/" class="tab" data-route="ledger" role="tab">記帳</a>
-        <a href="#/analysis" class="tab" data-route="analysis" role="tab">分析</a>
+        <a href="#ledger" class="tab" data-route="ledger" role="tab">記帳</a>
+        <a href="#analysis" class="tab" data-route="analysis" role="tab">分析</a>
       </nav>
       <div class="topbar-actions">
+        <span class="sync-badge" id="syncBadge" role="img" hidden></span>
         <button class="icon-btn" id="themeBtn" type="button" title="切換深色/淺色" aria-label="切換主題">🌓</button>
         <button class="icon-btn" id="menuBtn" type="button" title="更多" aria-label="更多選項" aria-haspopup="true">⋯</button>
         <div class="menu" id="menu" hidden>
@@ -27,13 +28,18 @@
           <button type="button" data-action="export-csv">匯出 CSV</button>
           <button type="button" data-action="export-json">備份 JSON</button>
           <button type="button" data-action="import-json">從 JSON 還原</button>
-          <button type="button" data-action="demo">載入示範資料</button>
+          <button type="button" data-action="demo">查看示範資料</button>
           <hr>
           <button type="button" data-action="clear" class="danger">清除全部資料</button>
         </div>
         <input type="file" id="importFile" accept="application/json,.json" hidden>
       </div>
     </header>
+
+    <div class="demo-banner" id="demoBanner" hidden>
+      <span>目前顯示的是<b>示範資料</b>，不會被儲存。記下第一筆帳，就會換成你自己的帳本。</span>
+      <button type="button" class="btn ghost" id="demoExit">隱藏示範</button>
+    </div>
 
     <!-- 月份切換：兩頁共用 -->
     <div class="month-bar">
