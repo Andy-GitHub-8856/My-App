@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#4f46e5">
+  <title>小記帳</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">💰</span>
+        <span class="brand-name">小記帳</span>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="頁面">
+        <a href="#/" class="tab" data-route="ledger" role="tab">記帳</a>
+        <a href="#/analysis" class="tab" data-route="analysis" role="tab">分析</a>
+      </nav>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="themeBtn" type="button" title="切換深色/淺色" aria-label="切換主題">🌓</button>
+        <button class="icon-btn" id="menuBtn" type="button" title="更多" aria-label="更多選項" aria-haspopup="true">⋯</button>
+        <div class="menu" id="menu" hidden>
+          <button type="button" data-action="budget">設定每月預算</button>
+          <button type="button" data-action="export-csv">匯出 CSV</button>
+          <button type="button" data-action="export-json">備份 JSON</button>
+          <button type="button" data-action="import-json">從 JSON 還原</button>
+          <button type="button" data-action="demo">載入示範資料</button>
+          <hr>
+          <button type="button" data-action="clear" class="danger">清除全部資料</button>
+        </div>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+    </header>
+
+    <!-- 月份切換：兩頁共用 -->
+    <div class="month-bar">
+      <button class="icon-btn" id="prevMonth" type="button" aria-label="上個月">‹</button>
+      <button class="month-label" id="monthLabel" type="button" title="回到本月"></button>
+      <button class="icon-btn" id="nextMonth" type="button" aria-label="下個月">›</button>
+    </div>
+
+    <!-- ========== 記帳頁 ========== -->
+    <main id="view-ledger" class="view" hidden>
+      <section class="summary">
+        <div class="summary-main">
+          <div class="summary-label">本月結餘</div>
+          <div class="summary-value" id="sumBalance">$0</div>
+        </div>
+        <div class="summary-row">
+          <div class="pill pill-income">
+            <span class="pill-label">收入</span>
+            <span class="pill-value" id="sumIncome">$0</span>
+          </div>
+          <div class="pill pill-expense">
+            <span class="pill-label">支出</span>
+            <span class="pill-value" id="sumExpense">$0</span>
+          </div>
+        </div>
+        <div class="budget" id="budgetBox" hidden>
+          <div class="budget-head">
+            <span>預算使用</span>
+            <span id="budgetText"></span>
+          </div>
+          <div class="budget-track"><div class="budget-fill" id="budgetFill"></div></div>
+        </div>
+      </section>
+
+      <section class="card entry-card">
+        <form id="entryForm" autocomplete="off">
+          <div class="seg" role="radiogroup" aria-label="類型">
+            <button type="button" class="seg-btn" data-type="expense" role="radio">支出</button>
+            <button type="button" class="seg-btn" data-type="income" role="radio">收入</button>
+          </div>
+
+          <label class="amount-field">
+            <span class="currency">$</span>
+            <input id="amount" name="amount" type="number" inputmode="decimal" min="0" step="any" placeholder="0" required aria-label="金額">
+          </label>
+
+          <div class="cats" id="catPicker" role="radiogroup" aria-label="分類"></div>
+
+          <div class="row">
+            <label class="field">
+              <span>日期</span>
+              <input id="date" name="date" type="date" required>
+            </label>
+            <label class="field grow">
+              <span>備註</span>
+              <input id="note" name="note" type="text" maxlength="60" placeholder="例如：午餐便當">
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn ghost" id="cancelEdit" hidden>取消編輯</button>
+            <button type="submit" class="btn primary" id="submitBtn">新增一筆</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="list-section">
+        <div class="list-head">
+          <h2>明細</h2>
+          <input class="search" id="search" type="search" placeholder="搜尋備註或分類" aria-label="搜尋">
+        </div>
+        <div id="txList"></div>
+      </section>
+    </main>
+
+    <!-- ========== 分析頁 ========== -->
+    <main id="view-analysis" class="view" hidden>
+      <div class="scope">
+        <div class="seg seg-sm" role="radiogroup" aria-label="分析範圍">
+          <button type="button" class="seg-btn" data-scope="month" role="radio">本月</button>
+          <button type="button" class="seg-btn" data-scope="year" role="radio">全年</button>
+        </div>
+        <div class="seg seg-sm" role="radiogroup" aria-label="分析類型">
+          <button type="button" class="seg-btn" data-atype="expense" role="radio">支出</button>
+          <button type="button" class="seg-btn" data-atype="income" role="radio">收入</button>
+        </div>
+      </div>
+
+      <section class="kpis" id="kpis"></section>
+
+      <section class="card chart-card">
+        <div class="chart-head">
+          <h3 id="catTitle">分類佔比</h3>
+          <span class="chart-sub" id="catSub"></span>
+        </div>
+        <div id="catChart"></div>
+      </section>
+
+      <section class="card chart-card">
+        <div class="chart-head">
+          <h3 id="trendTitle">每日支出</h3>
+          <span class="chart-sub" id="trendSub"></span>
+        </div>
+        <div class="chart" id="trendChart"></div>
+      </section>
+
+      <section class="card chart-card">
+        <div class="chart-head">
+          <h3>近 6 個月收支</h3>
+          <div class="legend">
+            <span class="legend-item"><i class="key key-income"></i>收入</span>
+            <span class="legend-item"><i class="key key-expense"></i>支出</span>
+          </div>
+        </div>
+        <div class="chart" id="monthsChart"></div>
+      </section>
+
+      <div class="grid-2">
+        <section class="card chart-card">
+          <div class="chart-head"><h3>星期分布</h3><span class="chart-sub">平均每個星期幾的金額</span></div>
+          <div class="chart" id="weekChart"></div>
+        </section>
+        <section class="card chart-card">
+          <div class="chart-head"><h3 id="topTitle">單筆最高</h3></div>
+          <ol class="top-list" id="topList"></ol>
+        </section>
+      </div>
+    </main>
+
+    <div class="tooltip" id="tooltip" role="status" hidden></div>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
