@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>天氣儀表板</title>
+  <meta name="description" content="即時天氣儀表板：自動抓取最新天氣、逐時與七日預報、空氣品質，可輸入地區切換。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="app.js" defer></script>
+</head>
+<body class="theme-clear-day">
+  <div class="bg" aria-hidden="true"></div>
+
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span>天氣儀表板</span>
+      </div>
+
+      <form class="search" id="searchForm" autocomplete="off" role="search">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input id="searchInput" type="search" placeholder="輸入城市或地區，例如：台中、Tokyo、高雄" aria-label="搜尋地區"
+               aria-autocomplete="list" aria-controls="suggestions" />
+        <ul class="suggestions" id="suggestions" role="listbox" hidden></ul>
+      </form>
+
+      <div class="actions">
+        <button class="icon-btn" id="locateBtn" type="button" title="使用目前位置" aria-label="使用目前位置">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </button>
+        <button class="icon-btn" id="refreshBtn" type="button" title="重新整理" aria-label="重新整理">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+        </button>
+        <div class="unit-toggle" role="group" aria-label="溫度單位">
+          <button type="button" data-unit="C" class="active">°C</button>
+          <button type="button" data-unit="F">°F</button>
+        </div>
+      </div>
+    </header>
+
+    <nav class="recent" id="recent" aria-label="最近查詢"></nav>
+
+    <div class="banner" id="banner" hidden></div>
+
+    <section class="grid" id="dashboard" aria-busy="true">
+      <!-- 目前天氣 -->
+      <article class="card hero">
+        <div class="hero-top">
+          <div>
+            <h1 class="place" id="placeName">載入中…</h1>
+            <p class="place-sub" id="placeSub">&nbsp;</p>
+          </div>
+          <p class="updated" id="updated"></p>
+        </div>
+        <div class="hero-main">
+          <div class="hero-icon" id="heroIcon"></div>
+          <div>
+            <div class="temp" id="curTemp">--°</div>
+            <div class="cond" id="curCond">&nbsp;</div>
+            <div class="hilo" id="curHiLo">&nbsp;</div>
+          </div>
+        </div>
+        <p class="summary" id="summary">&nbsp;</p>
+      </article>
+
+      <!-- 空氣品質 -->
+      <article class="card aqi-card">
+        <h2 class="card-title">空氣品質</h2>
+        <div class="aqi-wrap">
+          <div class="aqi-gauge" id="aqiGauge">
+            <svg viewBox="0 0 120 70" aria-hidden="true">
+              <path class="gauge-track" d="M10 60a50 50 0 0 1 100 0"/>
+              <path class="gauge-fill" id="aqiArc" d="M10 60a50 50 0 0 1 100 0"/>
+            </svg>
+            <div class="aqi-value" id="aqiValue">--</div>
+          </div>
+          <div class="aqi-label" id="aqiLabel">&nbsp;</div>
+        </div>
+        <dl class="aqi-list">
+          <div><dt>PM2.5</dt><dd id="pm25">--</dd></div>
+          <div><dt>PM10</dt><dd id="pm10">--</dd></div>
+          <div><dt>臭氧 O₃</dt><dd id="o3">--</dd></div>
+        </dl>
+      </article>
+
+      <!-- 逐時預報 -->
+      <article class="card hourly-card">
+        <h2 class="card-title">未來 24 小時</h2>
+        <div class="hourly-scroll" id="hourly"></div>
+      </article>
+
+      <!-- 詳細資訊 -->
+      <article class="card details-card">
+        <h2 class="card-title">今日詳情</h2>
+        <div class="details" id="details"></div>
+      </article>
+
+      <!-- 七日預報 -->
+      <article class="card daily-card">
+        <h2 class="card-title">七日預報</h2>
+        <ul class="daily" id="daily"></ul>
+      </article>
+    </section>
+
+    <footer class="foot">
+      資料來源：<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>（天氣、空氣品質、地名搜尋）·
+      每 10 分鐘自動更新
+    </footer>
+  </main>
+</body>
+</html>
