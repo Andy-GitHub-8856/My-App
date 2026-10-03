@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>台股篩選器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>台股篩選器</h1>
+      <p class="sub">FinMind 真實行情 · 多因子評級 · 依投資價值排序</p>
+    </div>
+    <div class="top-actions">
+      <button id="btnRefresh" class="btn primary" type="button">重新整理</button>
+      <button id="btnSettings" class="btn" type="button" aria-expanded="false">設定</button>
+    </div>
+  </header>
+
+  <section id="settings" class="panel settings" hidden>
+    <label for="tokenInput">FinMind API Token（選填，可提高每小時請求上限）</label>
+    <div class="row">
+      <input id="tokenInput" type="password" placeholder="貼上 token，留空則以訪客身分查詢" autocomplete="off">
+      <button id="btnSaveToken" class="btn" type="button">儲存</button>
+    </div>
+    <p class="hint">到 <a href="https://finmindtrade.com/" target="_blank" rel="noopener">finmindtrade.com</a> 免費註冊即可取得 token。Token 只存在你瀏覽器的 localStorage。</p>
+    <div class="row">
+      <button id="btnReset" class="btn danger" type="button">恢復預設 20 支觀察股</button>
+      <button id="btnClearCache" class="btn" type="button">清除行情快取</button>
+    </div>
+  </section>
+
+  <main>
+    <section class="panel controls">
+      <form id="addForm" class="add-form" autocomplete="off">
+        <input id="addInput" list="stockList" placeholder="輸入代號或名稱新增，例如 2330 或 台積電" aria-label="新增股票">
+        <datalist id="stockList"></datalist>
+        <button class="btn primary" type="submit">加入觀察</button>
+      </form>
+      <div class="filters">
+        <input id="searchInput" type="search" placeholder="篩選代號 / 名稱" aria-label="篩選">
+        <select id="gradeFilter" aria-label="評級篩選">
+          <option value="0">全部評級</option>
+          <option value="80">A+ 以上</option>
+          <option value="70">A 以上</option>
+          <option value="60">B 以上</option>
+          <option value="50">C 以上</option>
+        </select>
+        <select id="sortSelect" aria-label="排序">
+          <option value="score">依綜合評分</option>
+          <option value="tech">依技術面</option>
+          <option value="value">依估值面</option>
+          <option value="growth">依成長面</option>
+          <option value="chips">依籌碼面</option>
+          <option value="changePct">依今日漲跌</option>
+          <option value="dy">依殖利率</option>
+        </select>
+      </div>
+      <p id="message" class="message" role="status"></p>
+    </section>
+
+    <section class="summary" id="summary"></section>
+
+    <section id="list" class="list" aria-live="polite"></section>
+
+    <details class="panel method">
+      <summary>評分方法說明</summary>
+      <div class="method-body">
+        <p>每支股票由四個面向各自評 0–100 分，再加權成綜合分數（缺資料的面向會自動略過並重新分配權重）：</p>
+        <ul>
+          <li><b>技術面 30%</b>：股價與 20 / 60 日均線的多空排列、近 20 日報酬動能、RSI(14)（50–65 最佳，過熱或過冷扣分）。</li>
+          <li><b>估值面 25%</b>：本益比（10 倍以下滿分、40 倍以上 0 分、虧損給低分）、股價淨值比、現金殖利率（6% 以上滿分）。</li>
+          <li><b>成長面 25%</b>：最新月營收年增率與近 3 個月累計營收年增率。</li>
+          <li><b>籌碼面 20%</b>：近 10 個交易日三大法人買賣超佔成交量比例。</li>
+        </ul>
+        <p>評級：A+ ≥ 80、A ≥ 70、B ≥ 60、C ≥ 50、D ≥ 40、E &lt; 40。</p>
+        <p class="disclaimer">本工具僅依公開數據做量化計算，不構成任何投資建議。投資有風險，請自行判斷。</p>
+      </div>
+    </details>
+  </main>
+
+  <footer class="foot">資料來源：<a href="https://finmindtrade.com/" target="_blank" rel="noopener">FinMind</a> · 台股慣例：<span class="up">紅漲</span> <span class="down">綠跌</span></footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
